@@ -274,6 +274,26 @@ jobs:
           grep -q 'CAP=1608000' /tmp/rdcheck/usr/syno/sbin/rk3566_cpufreq_rcd.sh || { echo "ERROR: 1608 MHz cap is not baked into the rc.d payload"; exit 1; }
           echo "OK: DVFS hook + 1608 MHz cap present in uInitrd"
 
+      - name: Verify eMMC automount guard landed in uInitrd
+        run: |
+          set -euo pipefail
+          echo "== eMMC boot partition must stay hidden from DSM external storage"
+          RULE=/tmp/rdcheck/etc/udev/rules.d/99-oec-ignore-emmc-boot.rules
+          HOOK=/tmp/rdcheck/usr/syno/sbin/rk3566_hide_emmc_bootshare.sh
+          RCD=/tmp/rdcheck/usr/syno/sbin/oec_hide_emmc_bootshare_rcd.sh
+          test -f "$RULE" || { echo "ERROR: udev guard rule missing from uInitrd"; exit 1; }
+          test -x "$HOOK" || { echo "ERROR: eMMC rootfs sync hook missing from uInitrd"; exit 1; }
+          test -x "$RCD" || { echo "ERROR: eMMC rc.d payload missing from uInitrd"; exit 1; }
+          grep -Fq 'KERNEL=="mmcblk0"' "$RULE" || { echo "ERROR: whole-disk mmcblk0 rule missing"; exit 1; }
+          grep -Fq 'KERNEL=="mmcblk0p*"' "$RULE" || { echo "ERROR: partition mmcblk0p* rule missing"; exit 1; }
+          grep -Fq 'ENV{SYNO_DEV_DISKPORTTYPE}=""' "$RULE" || { echo "ERROR: port type clear missing from udev rule"; exit 1; }
+          grep -Fq '/bin/sh /usr/syno/sbin/rk3566_hide_emmc_bootshare.sh "$Mnt"' /tmp/rdcheck/linuxrc.syno.impl || { echo "ERROR: eMMC automount guard hook call missing from linuxrc.syno.impl"; exit 1; }
+          if grep -q '^support_emmc_boot=' /tmp/rdcheck/etc/synoinfo.conf /tmp/rdcheck/etc.defaults/synoinfo.conf; then
+            echo "ERROR: support_emmc_boot must stay unset - it redirects DSM install/upgrade to /dev/mmcblk0p1/p3"
+            exit 1
+          fi
+          echo "OK: eMMC automount guard present, support_emmc_boot not set"
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:

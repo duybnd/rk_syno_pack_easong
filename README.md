@@ -188,6 +188,33 @@ SOC=rk3566 INSTALL_SYNO_HDDMON=0 \
   scripts/patch-initrd-file.sh /path/to/rd.bin
 ```
 
+## eMMC 引导分区隐藏（RK3566 / OEC）
+
+DSM 会把 `mmcblk*` 设备当作 SD 卡外接存储注册，进而把 OEC 的 eMMC 引导分区
+挂成 `/volumeUSB1/usbshare1-1` 或 ContainerManager 里的 `sdshare1-1`。该分区
+存放 `Image`、`uInitrd`、DTB 与 `extlinux.conf`，在 File Station 里误删即可导致
+无法开机。本仓库沿用 OES 已验证的做法，构建 initrd 时固定注入（不区分 `SOC`）：
+
+| 载荷 | 位置（uInitrd 内） | 作用 |
+| --- | --- | --- |
+| `99-oec-ignore-emmc-boot.rules` | `/etc/udev/rules.d/` | 对 `mmcblk0` 整盘及其全部分区清空 `SYNO_DEV_DISKPORTTYPE`，保留 remove 事件 |
+| `rk3566_hide_emmc_bootshare.sh` | `/usr/syno/sbin/` | 每次开机把规则与 rc.d 投放到真实 rootfs |
+| `Z99oec_hide_emmc_bootshare.sh` | `/usr/local/etc/rc.d/` | 清理早期启动遗留的 eMMC 共享挂载，并按实际挂载点 mask 对应 systemd mount 单元 |
+
+实现要点：
+
+- **不使用 `support_emmc_boot=yes`**。该键会改变 DSM 安装器/升级器的系统与数据
+  分区选择（指向 `/dev/mmcblk0p1/p3`），与 OEC 的 `sata1p1/p3` 布局冲突。
+- 规则只匹配 `mmcblk0`，不影响真实 TF 卡（`mmcblk1` 等）。
+- 载荷随 uInitrd 每次开机重装，DSM 升级重建 rootfs 后仍生效；OES 侧已验证该类
+  udev + systemd 方案不影响 DSM 升级。
+- 验证脚本：`sh tests/test_emmc_automount_guard.sh`；CI 的
+  `Verify eMMC automount guard landed in uInitrd` 步骤会断言载荷与
+  `support_emmc_boot` 未被设置。
+
+真机验收：重启后 `/proc/mounts` 无 `mmcblk0*` 的 `usbshare/sdshare` 挂载，
+`/dev/sata1p1` 与 `/volume1` 正常，Photos/NPU、VPU、LED 无回归。
+
 ## 编译 U-Boot
 
 RK3399：
@@ -290,6 +317,8 @@ EXTRA_PARTS='rdnew:16M,userdata:0' \
 | `COHERENT_POOL` | 内核 `coherent_pool` bootarg，默认 `4M` |
 | `DEBUG_BOOTARGS` | 临时追加内核调试参数 |
 | `OUTPUT_DATE` | 输出文件日期，默认 `YYYYMMDD` |
+| `OEC_EMMC_RULE_SRC` | 覆盖 rootfs 同步 hook 读取的 udev 规则源路径（调试用，默认 `/etc/udev/rules.d/99-oec-ignore-emmc-boot.rules`） |
+| `OEC_EMMC_RCD_SRC` | 覆盖 rootfs 同步 hook 读取的 rc.d 载荷源路径（调试用，默认 `/usr/syno/sbin/oec_hide_emmc_bootshare_rcd.sh`） |
 
 例如固定身份信息并重新打包：
 

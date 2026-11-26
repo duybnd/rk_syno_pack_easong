@@ -1,0 +1,6 @@
+# OEC RK3566 (DS124): the eMMC is boot media, not DSM external storage.
+# Clear Synology's SD-card port classification for the whole eMMC and every
+# partition on add/change. remove is left untouched so sdcard.sh can still
+# perform its normal teardown path.
+ACTION!="remove", SUBSYSTEM=="block", KERNEL=="mmcblk0", ENV{SYNO_DEV_DISKPORTTYPE}=""
+ACTION!="remove", SUBSYSTEM=="block", KERNEL=="mmcblk0p*", ENV{SYNO_DEV_DISKPORTTYPE}=""

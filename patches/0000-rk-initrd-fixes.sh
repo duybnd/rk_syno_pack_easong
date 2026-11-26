@@ -153,6 +153,53 @@ EOF
 	chmod 0755 "$linuxrc"
 }
 
+install_emmc_automount_guard()
+{
+	root="$1"
+	guard_dir="$(cd "$(dirname "$0")/emmc-automount-guard" && pwd)"
+	impl="$root/linuxrc.syno.impl"
+	rule="$guard_dir/99-oec-ignore-emmc-boot.rules"
+	hook_script="$guard_dir/rk3566_hide_emmc_bootshare.sh"
+	rcd_script="$guard_dir/Z99oec_hide_emmc_bootshare.sh"
+	hook='/bin/sh /usr/syno/sbin/rk3566_hide_emmc_bootshare.sh "$Mnt"'
+
+	need_file "$impl"
+	need_file "$rule"
+	need_file "$hook_script"
+	need_file "$rcd_script"
+
+	mkdir -p "$root/etc/udev/rules.d" "$root/usr/syno/sbin"
+	cp -f "$rule" "$root/etc/udev/rules.d/99-oec-ignore-emmc-boot.rules"
+	cp -f "$hook_script" "$root/usr/syno/sbin/rk3566_hide_emmc_bootshare.sh"
+	cp -f "$rcd_script" "$root/usr/syno/sbin/oec_hide_emmc_bootshare_rcd.sh"
+	chmod 0644 "$root/etc/udev/rules.d/99-oec-ignore-emmc-boot.rules"
+	chmod 0755 "$root/usr/syno/sbin/rk3566_hide_emmc_bootshare.sh"
+	chmod 0755 "$root/usr/syno/sbin/oec_hide_emmc_bootshare_rcd.sh"
+	log "installing eMMC automount guard payload"
+
+	if grep -Fq "$hook" "$impl"; then
+		log "eMMC automount guard hook already installed"
+		return 0
+	fi
+
+	log "installing eMMC automount guard hook"
+	awk -v hook="$hook" '
+		!done && $0 == "/bin/sh /usr/syno/sbin/rk3399_sync_model_dtb.sh \"$Mnt\"" {
+			print
+			print hook
+			done = 1
+			next
+		}
+		{ print }
+		END {
+			if (!done)
+				exit 1
+		}
+	' "$impl" >"$impl.oec"
+	mv -f "$impl.oec" "$impl"
+	chmod 0755 "$impl"
+}
+
 install_cpufreq_dvfs_hook()
 {
 	root="$1"
@@ -304,6 +351,7 @@ main()
 	esac
 	install_model_sync_hook "$root"
 	install_cpufreq_dvfs_hook "$root" "$soc"
+	install_emmc_automount_guard "$root"
 	fix_webman_reboot "$root"
 }
 
